@@ -1,5 +1,7 @@
+use std::fmt;
+
 #[allow(dead_code)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
 pub enum Token {
     ILLEGAL,
     EOF,
@@ -31,6 +33,12 @@ pub enum Token {
     IF,
     ELSE,
     RETURN,
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 impl Token {

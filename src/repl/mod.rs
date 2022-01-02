@@ -1,17 +1,25 @@
 use crate::{lexer::Lexer, token::Token};
 use std::io::{stdin, stdout, Write};
 
+/**
+ * Main loop of REPL
+ */
 pub fn start() {
-    let prompt = ">>";
+    let prompt = ">> ";
     let mut line = String::new();
 
     loop {
-        print!("{} ", prompt);
+        // prompt and flush
+        print!("{}", prompt);
         let _ = stdout().flush();
+
+        // get the next line
         match stdin().read_line(&mut line) {
             Ok(_) => {
+                // setup the lexer
                 let mut lexer = Lexer::new(line.as_str());
 
+                // get each token and print it. Break on EOF.
                 loop {
                     let tok = lexer.next_token();
                     if tok == Token::EOF {
@@ -20,7 +28,8 @@ pub fn start() {
                         println!("{:?}", tok);
                     }
                 }
-                println!("");
+                println!();
+                // clear the buffer for the next line
                 line.clear();
             }
             Err(_) => break,

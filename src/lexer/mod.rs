@@ -242,9 +242,13 @@ mod tests {
 
         let mut lexer = Lexer::new(input);
 
-        for test in tests {
+        for (i, test) in tests.iter().enumerate() {
             let tok = lexer.next_token();
-            assert_eq!(test.expected_type, tok);
+            assert_eq!(
+                test.expected_type, tok,
+                "Test: {}. Wrong Token. got={:?} expected={:?}",
+                i, tok, test.expected_type
+            );
         }
     }
 }
