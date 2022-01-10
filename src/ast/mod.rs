@@ -3,15 +3,29 @@ use std::fmt::{self};
 #[derive(Debug, PartialEq)]
 pub struct Ident(pub String);
 
+impl fmt::Display for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Literal {
     Int(i64),
+    Boolean(bool),
 }
 
 impl fmt::Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Literal::Int(i) => write!(f, "{}", i),
+            Literal::Boolean(b) => {
+                if *b {
+                    write!(f, "true")
+                } else {
+                    write!(f, "false")
+                }
+            }
         }
     }
 }
@@ -68,6 +82,9 @@ pub enum Expr {
     LitExp(Literal),
     Prefix(Operator, Box<Expr>),
     Infix(Operator, Box<Expr>, Box<Expr>),
+    If(Box<Expr>, BlockStatement, Option<BlockStatement>),
+    Fn(Vec<Ident>, BlockStatement),
+    Call(Box<Expr>, Vec<Expr>),
 }
 
 impl fmt::Display for Expr {
@@ -77,8 +94,41 @@ impl fmt::Display for Expr {
             Expr::LitExp(l) => write!(f, "{}", l),
             Expr::Prefix(o, e) => write!(f, "({}{})", o, e),
             Expr::Infix(o, l, r) => write!(f, "({} {} {})", l, o, r),
+            Expr::If(i, te, fe) => {
+                let if_val = print_block_statement(te);
+                return match fe {
+                    Some(el) => write!(f, "if {} {} else {}", i, if_val, print_block_statement(el)),
+                    None => write!(f, "if {} {}", i, if_val),
+                };
+            }
+            Expr::Fn(iv, bv) => {
+                let args: String = iv.iter().map(|a| format!("{}", a)).collect();
+
+                write!(f, "({}) {{ {} }}", args, print_block_statement(bv))
+            }
+            Expr::Call(n, a) => write!(f, "{}({})", n, join(a, ", ")),
         }
     }
+}
+
+fn print_block_statement(bs: &BlockStatement) -> String {
+    bs.iter().map(|b| format!("{} ", b)).collect()
+}
+
+fn join<I, T>(it: I, sep: &str) -> String
+where
+    I: IntoIterator<Item = T>,
+    T: std::fmt::Display,
+{
+    use std::fmt::Write;
+
+    let mut it = it.into_iter();
+    let first = it.next().map(|f| f.to_string()).unwrap_or_default();
+
+    it.fold(first, |mut acc, s| {
+        write!(acc, "{}{}", sep, s).expect("Writing in a String shouldn't fail");
+        acc
+    })
 }
 
 #[derive(PartialOrd, PartialEq, Clone, Copy)]
@@ -92,7 +142,9 @@ pub enum Precedence {
     CALL,        // myFunc(x)
 }
 
-pub type Program = Vec<Stmt>;
+pub type BlockStatement = Vec<Stmt>;
+
+pub type Program = BlockStatement;
 
 #[cfg(test)]
 mod testing {

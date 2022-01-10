@@ -1,12 +1,10 @@
-use std::ops::Add;
-
 use crate::{
-    ast::{Expr, Ident, Literal, Operator, Precedence, Program, Stmt},
+    ast::{BlockStatement, Expr, Ident, Literal, Operator, Precedence, Program, Stmt},
     lexer::Lexer,
     token::Token,
 };
 
-struct Parser<'a> {
+pub(crate) struct Parser<'a> {
     lexer: Lexer<'a>,
     curr_tok: Token,
     peek_tok: Token,
@@ -14,7 +12,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(mut lexer: Lexer<'a>) -> Self {
+    pub fn new(mut lexer: Lexer<'a>) -> Self {
         let curr_tok = lexer.next_token();
         let peek_tok = lexer.next_token();
 
@@ -34,7 +32,7 @@ impl<'a> Parser<'a> {
         Parser::precedence_order(self.curr_tok.clone())
     }
 
-    fn errors(self) -> Vec<String> {
+    pub fn errors(self) -> Vec<String> {
         self.errors.clone()
     }
 
@@ -50,7 +48,7 @@ impl<'a> Parser<'a> {
 
     fn peek_error(&mut self, t: &Token) {
         let err = format!(
-            "expected next token to be {:?}, got {:?} instead.",
+            "expected next token to be {}, got {} instead.",
             t, self.peek_tok
         );
 
@@ -75,8 +73,160 @@ impl<'a> Parser<'a> {
         self.errors.push(err);
     }
 
+    fn parse_block_expression(&mut self) -> BlockStatement {
+        let mut block = BlockStatement::new();
+        self.next_token();
+
+        while !self.curr_token_is(Token::RBRACE) && !self.curr_token_is(Token::EOF) {
+            match self.parse_statement() {
+                Some(stmt) => block.push(stmt),
+                None => (),
+            }
+        }
+
+        block
+    }
+
+    fn parse_boolean_literal(&self, val: bool) -> Expr {
+        Expr::LitExp(Literal::Boolean(val))
+    }
+
+    fn parse_call_expression(&mut self, call: Expr) -> Option<Expr> {
+        let args = self.parse_call_arguments()?;
+
+        Some(Expr::Call(Box::new(call), args))
+    }
+
+    fn parse_call_arguments(&mut self) -> Option<Vec<Expr>> {
+        let mut args = vec![];
+
+        if self.peek_token_is(&Token::RPAREN) {
+            self.next_token();
+            return Some(args);
+        }
+
+        self.next_token();
+
+        match self.parse_expression(Precedence::LOWEST) {
+            Some(arg) => args.push(arg),
+            None => (),
+        }
+
+        while self.peek_token_is(&Token::COMMA) {
+            self.next_token();
+            self.next_token();
+
+            match self.parse_expression(Precedence::LOWEST) {
+                Some(arg) => args.push(arg),
+                None => (),
+            }
+        }
+
+        if !self.expect_peek(&Token::RPAREN) {
+            return None;
+        }
+
+        Some(args)
+    }
+
+    fn parse_function_literal(&mut self) -> Option<Expr> {
+        if !self.expect_peek(&Token::LPAREN) {
+            return None;
+        }
+
+        let params = self.parse_function_params()?;
+
+        if !self.expect_peek(&Token::LBRACE) {
+            return None;
+        }
+
+        let body = self.parse_block_expression();
+
+        Some(Expr::Fn(params, body))
+    }
+
+    fn parse_function_params(&mut self) -> Option<Vec<Ident>> {
+        let mut param_list = vec![];
+
+        if self.peek_token_is(&Token::RPAREN) {
+            self.next_token();
+            return Some(param_list);
+        }
+
+        self.next_token();
+
+        match &self.curr_tok {
+            Token::IDENT(val) => param_list.push(Ident(val.clone())),
+            _ => (),
+        };
+
+        while self.peek_token_is(&Token::COMMA) {
+            self.next_token();
+            self.next_token();
+            match &self.curr_tok {
+                Token::IDENT(val) => param_list.push(Ident(val.clone())),
+                _ => (),
+            };
+        }
+
+        if !self.expect_peek(&Token::RPAREN) {
+            return None;
+        }
+
+        Some(param_list)
+    }
+
+    fn parse_grouped_expression(&mut self) -> Option<Expr> {
+        self.next_token();
+
+        let expr = self.parse_expression(Precedence::LOWEST);
+
+        if !self.peek_token_is(&Token::RPAREN) {
+            return None;
+        }
+
+        self.next_token();
+
+        expr
+    }
+
     fn parse_identifier(&self, val: String) -> Expr {
         Expr::IdentExp(Ident(val))
+    }
+
+    fn parse_if_expression(&mut self) -> Option<Expr> {
+        if !self.expect_peek(&Token::LPAREN) {
+            return None;
+        }
+
+        self.next_token();
+        let test = self.parse_expression(Precedence::LOWEST)?;
+
+        if !self.expect_peek(&Token::RPAREN) {
+            return None;
+        }
+
+        if !self.expect_peek(&Token::LBRACE) {
+            return None;
+        }
+
+        let condition = self.parse_block_expression();
+
+        let mut alternative: Option<BlockStatement> = None;
+
+        if self.peek_token_is(&Token::ELSE) {
+            self.next_token();
+
+            if !self.expect_peek(&Token::LBRACE) {
+                return None;
+            }
+
+            alternative = Some(self.parse_block_expression());
+        }
+
+        self.next_token();
+
+        Some(Expr::If(Box::new(test), condition, alternative))
     }
 
     fn parse_infix_expression(&mut self, left: Expr) -> Option<Expr> {
@@ -89,6 +239,7 @@ impl<'a> Parser<'a> {
             Token::GT => Operator::GT,
             Token::EQ => Operator::EQ,
             Token::NE => Operator::NE,
+            Token::LPAREN => return self.parse_call_expression(left),
             _ => return None,
         };
 
@@ -105,7 +256,7 @@ impl<'a> Parser<'a> {
         Expr::LitExp(Literal::Int(val))
     }
 
-    fn parse_program(&mut self) -> Option<Program> {
+    pub fn parse_program(&mut self) -> Option<Program> {
         let mut program = Program::new();
 
         while self.curr_tok != Token::EOF {
@@ -130,9 +281,12 @@ impl<'a> Parser<'a> {
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expr> {
         let mut left_exp = match &self.curr_tok {
             Token::IDENT(val) => Some(self.parse_identifier(val.clone())),
-            Token::INT(val) => Some(self.parse_integer_literal(val.clone())),
+            Token::INT(val) => Some(self.parse_integer_literal(*val)),
+            Token::BOOLEAN(val) => Some(self.parse_boolean_literal(*val)),
             Token::BANG | Token::MINUS => self.parse_prefix_expression(),
-
+            Token::LPAREN => self.parse_grouped_expression(),
+            Token::IF => self.parse_if_expression(),
+            Token::FUNCTION => self.parse_function_literal(),
             _ => {
                 self.no_prefix_parser_err();
                 return None;
@@ -173,17 +327,16 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        // TODO: Fix getting expressions
-        while !self.curr_token_is(Token::SEMICOLON) {
-            self.next_token();
+        self.next_token();
+
+        let expr = self.parse_expression(Precedence::LOWEST)?;
+        if self.peek_token_is(&Token::SEMICOLON) {
+            self.next_token()
         }
 
         self.next_token();
 
-        Some(Stmt::Let(
-            Ident(name.to_string()),
-            Box::new(Expr::LitExp(Literal::Int(5))),
-        ))
+        Some(Stmt::Let(Ident(name), Box::new(expr)))
     }
 
     fn parse_prefix_expression(&mut self) -> Option<Expr> {
@@ -202,13 +355,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_return_statement(&mut self) -> Option<Stmt> {
-        // TODO: Fix getting expressions
-        while !self.curr_token_is(Token::SEMICOLON) {
-            self.next_token();
-        }
         self.next_token();
 
-        Some(Stmt::Return(Box::new(Expr::LitExp(Literal::Int(5)))))
+        let expr = self.parse_expression(Precedence::LOWEST)?;
+
+        if self.peek_token_is(&Token::SEMICOLON) {
+            self.next_token()
+        }
+
+        self.next_token();
+
+        Some(Stmt::Return(Box::new(expr)))
     }
 
     fn precedence_order(token: Token) -> Precedence {
@@ -221,6 +378,7 @@ impl<'a> Parser<'a> {
             Token::GT => Precedence::LESSGREATER,
             Token::EQ => Precedence::EQUALS,
             Token::NE => Precedence::EQUALS,
+            Token::LPAREN => Precedence::CALL,
             _ => Precedence::LOWEST,
         }
     }

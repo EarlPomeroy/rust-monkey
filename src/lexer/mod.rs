@@ -100,8 +100,11 @@ impl<'a> Lexer<'a> {
 
         let num_val = &self.input[pos..self.position];
 
-        // TODO: add error here is not a int
-        Token::INT(num_val.parse::<i64>().unwrap())
+        Token::INT(
+            num_val
+                .parse::<i64>()
+                .expect("num_val should be an integer"),
+        )
     }
 
     fn read_identifier(&mut self) -> Token {
